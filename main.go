@@ -48,10 +48,22 @@ func main() {
 		if len(splitLine) == 1 {
 			currentLineContent += splitLine[0]
 			continue
-		} else {
+		} else if len(splitLine) == 2 {
 			currentLineContent += splitLine[0]
 			fmt.Printf("read: %s\n", currentLineContent)
 			currentLineContent = splitLine[1]
+		} else {
+			for i, line := range splitLine {
+				if i == 0 {
+					fmt.Printf("read: %s\n", currentLineContent+line)
+					continue
+				}
+				if i == len(splitLine)-1 {
+					currentLineContent = line
+					break
+				}
+				fmt.Printf("read: %s\n", line)
+			}
 		}
 	}
 	if currentLineContent != "" {
