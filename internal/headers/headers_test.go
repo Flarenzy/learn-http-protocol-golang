@@ -64,4 +64,13 @@ func TestHeadersParse(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 0, n)
 	assert.False(t, done)
+
+	// Test: Header already exists
+	headers = map[string]string{"Set-Person": "boban"}
+	data = []byte("Set-Person: mark\r\n")
+	n, done, err = headers.Parse(data)
+	require.NoError(t, err)
+	assert.Equal(t, "boban, mark", headers["set-person"])
+	assert.Equal(t, len("Set-Person: mark\r\n"), n)
+	assert.False(t, done)
 }

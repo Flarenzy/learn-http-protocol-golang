@@ -36,7 +36,13 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	if !isValidFieldName(key) {
 		return 0, false, fmt.Errorf("invalid char in field-name %s", key)
 	}
-	h.Set(strings.ToLower(key), string(value))
+	v, ok := h[key]
+	if !ok {
+		h.Set(strings.ToLower(key), string(value))
+	} else {
+		h.Set(strings.ToLower(key), fmt.Sprintf("%s, %s", v, string(value)))
+	}
+
 	return idx + 2, false, nil
 }
 
