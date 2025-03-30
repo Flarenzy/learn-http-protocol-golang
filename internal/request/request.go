@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"github/Flarenzy/learn-http-protocol-golang/internal/headers"
 	"io"
+	"strconv"
 	"strings"
 )
 
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 	state       reqState
 }
 
@@ -27,6 +29,7 @@ const (
 	reqStateInitialized reqState = iota
 	requestStateDone
 	requestStateParsingHeaders
+	requestStateParsingBody
 )
 
 func (r reqState) String() string {
@@ -42,6 +45,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	req := &Request{
 		state:   reqStateInitialized,
 		Headers: headers.NewHeaders(),
+		Body:    make([]byte, 0),
 	}
 	for req.state != requestStateDone {
 		if readToIndex >= len(buf) {
@@ -145,6 +149,7 @@ func (r *Request) parse(data []byte) (int, error) {
 }
 
 func (r *Request) parseSingle(data []byte) (int, error) {
+
 	switch r.state {
 	case reqStateInitialized:
 		requestLine, n, err := parseRequestLine(data)
@@ -167,9 +172,30 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 			return 0, err
 		}
 		if done {
-			r.state = requestStateDone
+			r.state = requestStateParsingBody
 		}
 		return n, nil
+
+	case requestStateParsingBody:
+		v := r.Headers.Get("Content-Length")
+		if v == "" {
+			r.state = requestStateDone
+			return 0, nil
+		}
+		r.Body = append(r.Body, data...)
+		n, err := strconv.Atoi(r.Headers.Get("Content-Length"))
+		if err != nil {
+			return 0, err
+		}
+		if len(r.Body) > n {
+			return 0, fmt.Errorf("len of body greater than reported, reported %d expected %d, body %s", n, len(r.Body), string(r.Body))
+		}
+		if len(r.Body) == n {
+			r.state = requestStateDone
+			return 0, nil
+		}
+		return len(data), nil
+
 	default:
 		return 0, fmt.Errorf("unknown state")
 	}

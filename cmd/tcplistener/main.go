@@ -57,6 +57,9 @@ func main() {
 			fmt.Printf("- %s: %s\n", h, req.Headers[h])
 		}
 
+		if req.Body != nil {
+			fmt.Println("Body:")
+			fmt.Printf("%s", string(req.Body))
+		}
 	}
-
 }
