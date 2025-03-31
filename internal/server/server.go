@@ -101,7 +101,7 @@ func (s *Server) handle(conn net.Conn) {
 	if err != nil {
 		log.Printf("ERROR: unable to parse request")
 	}
-	buf := make([]byte, 1024)
+	buf := make([]byte, 0)
 	buffer := bytes.NewBuffer(buf)
 	handlerError := s.handler(buffer, req)
 	if handlerError != nil {
@@ -116,15 +116,7 @@ func (s *Server) handle(conn net.Conn) {
 		log.Printf("ERROR: error writting status-line to conn")
 		return
 	}
-	readBuf := make([]byte, 1024)
-	_, err = buffer.Read(readBuf)
-	if err != nil {
-		err = writeHandlerError(conn, HandlerError{500, "Internal Server Error"})
-		if err != nil {
-			log.Print("ERROR: error respoind to conn")
-		}
-		return
-	}
+
 	defaultHeaders := response.GetDefaultHeaders(buffer.Len())
 	err = response.WriteHeaders(conn, defaultHeaders)
 	if err != nil {
@@ -132,7 +124,7 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	_, err = buffer.WriteTo(conn)
+	_, err = conn.Write(buffer.Bytes())
 	if err != nil {
 		log.Printf("ERROR: error writting body to conn")
 	}
