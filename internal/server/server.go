@@ -1,30 +1,43 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"github/Flarenzy/learn-http-protocol-golang/internal/request"
 	"github/Flarenzy/learn-http-protocol-golang/internal/response"
+	"io"
 	"log"
 	"net"
+	"strconv"
 	"sync/atomic"
 )
 
 type Server struct {
 	port     int
+	handler  Handler
 	listener *net.TCPListener
 	running  *atomic.Bool
 }
 
-func newServer(port int, listener *net.TCPListener) *Server {
+type HandlerError struct {
+	StatusCode   int
+	ErrorMessage string
+}
+
+type Handler func(w io.Writer, req *request.Request) *HandlerError
+
+func newServer(port int, handler Handler, listener *net.TCPListener) *Server {
 	r := atomic.Bool{}
 	r.Store(true)
 	return &Server{
 		port:     port,
+		handler:  handler,
 		listener: listener,
 		running:  &r,
 	}
 }
 
-func Serve(port int) (*Server, error) {
+func Serve(port int, handler Handler) (*Server, error) {
 	addr := fmt.Sprintf(":%d", port)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -34,8 +47,12 @@ func Serve(port int) (*Server, error) {
 	if !ok {
 		return nil, fmt.Errorf("internal error unable to make TCPListener")
 	}
+	if handler == nil {
+		return nil, fmt.Errorf("error: need handler func")
+	}
 	s := newServer(
 		port,
+		handler,
 		tcpListener,
 	)
 	go s.listen()
@@ -75,23 +92,59 @@ func (s *Server) listen() {
 }
 
 func (s *Server) handle(conn net.Conn) {
-	log.Print("Handling conn inside of handle...")
-	err := response.WriteStatusLine(conn, response.StatusOk)
-	if err != nil {
-		log.Printf("ERROR: error writting to conn")
-		return
-	}
-	defaultHeaders := response.GetDefaultHeaders(0)
-	err = response.WriteHeaders(conn, defaultHeaders)
-	if err != nil {
-		log.Printf("ERROR: error writting to conn")
-		return
-	}
 	if cw, ok := conn.(interface{ CloseWrite() error }); ok {
 		defer cw.CloseWrite()
 	} else {
 		log.Printf("Connection doesn't implement CloseWrite method")
 	}
+	req, err := request.RequestFromReader(conn)
+	if err != nil {
+		log.Printf("ERROR: unable to parse request")
+	}
+	buf := make([]byte, 1024)
+	buffer := bytes.NewBuffer(buf)
+	handlerError := s.handler(buffer, req)
+	if handlerError != nil {
+		err = writeHandlerError(conn, *handlerError)
+		if err != nil {
+			log.Printf("ERROR: unable to write error to conn.")
+		}
+		return
+	}
+	err = response.WriteStatusLine(conn, response.StatusOk)
+	if err != nil {
+		log.Printf("ERROR: error writting status-line to conn")
+		return
+	}
+	readBuf := make([]byte, 1024)
+	_, err = buffer.Read(readBuf)
+	if err != nil {
+		err = writeHandlerError(conn, HandlerError{500, "Internal Server Error"})
+		if err != nil {
+			log.Print("ERROR: error respoind to conn")
+		}
+		return
+	}
+	defaultHeaders := response.GetDefaultHeaders(buffer.Len())
+	err = response.WriteHeaders(conn, defaultHeaders)
+	if err != nil {
+		log.Printf("ERROR: error writting headers to conn")
+		return
+	}
+
+	_, err = buffer.WriteTo(conn)
+	if err != nil {
+		log.Printf("ERROR: error writting body to conn")
+	}
+}
+
+func writeHandlerError(w io.Writer, h HandlerError) error {
+	msg := fmt.Sprintf("HTTP/1.1 %s \r\nConnection: close\r\n\r\n%s", strconv.Itoa(h.StatusCode), h.ErrorMessage)
+	_, err := w.Write([]byte(msg))
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // func encode[T any](w http.ResponseWriter, _ *http.Request, status int, v T) error {
