@@ -1,11 +1,10 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
+	"github/Flarenzy/learn-http-protocol-golang/internal/response"
 	"log"
 	"net"
-	"net/http"
 	"sync/atomic"
 )
 
@@ -76,9 +75,17 @@ func (s *Server) listen() {
 }
 
 func (s *Server) handle(conn net.Conn) {
-	_, err := conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello World!"))
+	log.Print("Handling conn inside of handle...")
+	err := response.WriteStatusLine(conn, response.StatusOk)
 	if err != nil {
 		log.Printf("ERROR: error writting to conn")
+		return
+	}
+	defaultHeaders := response.GetDefaultHeaders(0)
+	err = response.WriteHeaders(conn, defaultHeaders)
+	if err != nil {
+		log.Printf("ERROR: error writting to conn")
+		return
 	}
 	if cw, ok := conn.(interface{ CloseWrite() error }); ok {
 		defer cw.CloseWrite()
@@ -87,19 +94,19 @@ func (s *Server) handle(conn net.Conn) {
 	}
 }
 
-func encode[T any](w http.ResponseWriter, _ *http.Request, status int, v T) error {
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		return fmt.Errorf("encode json: %w", err)
-	}
-	return nil
-}
+// func encode[T any](w http.ResponseWriter, _ *http.Request, status int, v T) error {
+// 	w.Header().Set("Content-Type", "text/plain")
+// 	w.WriteHeader(status)
+// 	if err := json.NewEncoder(w).Encode(v); err != nil {
+// 		return fmt.Errorf("encode json: %w", err)
+// 	}
+// 	return nil
+// }
 
-func decode[T any](r *http.Request) (T, error) {
-	var v T
-	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
-		return v, fmt.Errorf("decode json: %w", err)
-	}
-	return v, nil
-}
+// func decode[T any](r *http.Request) (T, error) {
+// 	var v T
+// 	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
+// 		return v, fmt.Errorf("decode json: %w", err)
+// 	}
+// 	return v, nil
+// }
