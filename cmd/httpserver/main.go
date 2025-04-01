@@ -2,8 +2,8 @@ package main
 
 import (
 	"github/Flarenzy/learn-http-protocol-golang/internal/request"
+	"github/Flarenzy/learn-http-protocol-golang/internal/response"
 	"github/Flarenzy/learn-http-protocol-golang/internal/server"
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -12,34 +12,97 @@ import (
 
 const port = 42069
 
-func handleRequest(w io.Writer, r *request.Request) *server.HandlerError {
+const badRequestResponse = `
+<html>
+  <head>
+    <title>400 Bad Request</title>
+  </head>
+  <body>
+    <h1>Bad Request</h1>
+    <p>Your request honestly kinda sucked.</p>
+  </body>
+</html>
+`
+
+const internalErrorResponse = `
+<html>
+  <head>
+    <title>500 Internal Server Error</title>
+  </head>
+  <body>
+    <h1>Internal Server Error</h1>
+    <p>Okay, you know what? This one is on me.</p>
+  </body>
+</html>
+`
+
+const okResponse = `
+<html>
+  <head>
+    <title>200 OK</title>
+  </head>
+  <body>
+    <h1>Success!</h1>
+    <p>Your request was an absolute banger.</p>
+  </body>
+</html>
+`
+
+func handleRequest(w *response.Writter, r *request.Request) {
 	if r == nil {
-		return &server.HandlerError{
-			StatusCode:   400,
-			ErrorMessage: "Bad Request",
-		}
+		return
 	}
 	switch r.RequestLine.RequestTarget {
 	case "/yourproblem":
-		return &server.HandlerError{
-			StatusCode:   400,
-			ErrorMessage: "Your problem is not my problem\n",
+		err := w.WriteStatusLine(400)
+		if err != nil {
+			log.Print("error writting status line to connection with status 400")
+			return
 		}
+		headers := response.GetDefaultHeaders(len(badRequestResponse))
+		headers.Set("Content-Type", "text/html")
+		err = w.WriteHeaders(headers)
+		if err != nil {
+			log.Print("error writting headers to connection with status 400")
+		}
+		_, err = w.WriteBody([]byte(badRequestResponse))
+		if err != nil {
+			log.Print("error writting body to connection with status 400")
+		}
+		return
 	case "/myproblem":
-		return &server.HandlerError{
-			StatusCode:   500,
-			ErrorMessage: "Woopsie, my bad\n",
+		err := w.WriteStatusLine(500)
+		if err != nil {
+			log.Print("error writting status line to connection with status 500")
+			return
+		}
+		headers := response.GetDefaultHeaders(len(internalErrorResponse))
+		headers.Set("Content-Type", "text/html")
+		err = w.WriteHeaders(headers)
+		if err != nil {
+			log.Print("error writting headers to connection with status 500")
+		}
+		_, err = w.WriteBody([]byte(internalErrorResponse))
+		if err != nil {
+			log.Print("error writting body to connection with status 500")
 		}
 	default:
-		_, err := w.Write([]byte("All good, frfr\n"))
+		err := w.WriteStatusLine(200)
 		if err != nil {
-			return &server.HandlerError{
-				StatusCode:   500,
-				ErrorMessage: err.Error(),
-			}
+			log.Print("error writting status line to connection with status 200")
+			return
 		}
-		log.Println("Wrote to io.Writer")
-		return nil
+		headers := response.GetDefaultHeaders(len(okResponse))
+		headers.Set("Content-Type", "text/html")
+		err = w.WriteHeaders(headers)
+		if err != nil {
+			log.Print("error writting headers to connection with status 200")
+		}
+		_, err = w.WriteBody([]byte(okResponse))
+		if err != nil {
+			log.Print("error writting body to connection with status 200")
+		}
+		return
 	}
 }
 

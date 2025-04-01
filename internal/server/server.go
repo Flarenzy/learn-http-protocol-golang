@@ -1,14 +1,11 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
 	"github/Flarenzy/learn-http-protocol-golang/internal/request"
 	"github/Flarenzy/learn-http-protocol-golang/internal/response"
-	"io"
 	"log"
 	"net"
-	"strconv"
 	"sync/atomic"
 )
 
@@ -24,7 +21,7 @@ type HandlerError struct {
 	ErrorMessage string
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
+type Handler func(w *response.Writter, req *request.Request)
 
 func newServer(port int, handler Handler, listener *net.TCPListener) *Server {
 	r := atomic.Bool{}
@@ -101,43 +98,18 @@ func (s *Server) handle(conn net.Conn) {
 	if err != nil {
 		log.Printf("ERROR: unable to parse request")
 	}
-	buf := make([]byte, 0)
-	buffer := bytes.NewBuffer(buf)
-	handlerError := s.handler(buffer, req)
-	if handlerError != nil {
-		err = writeHandlerError(conn, *handlerError)
-		if err != nil {
-			log.Printf("ERROR: unable to write error to conn.")
-		}
-		return
-	}
-	err = response.WriteStatusLine(conn, response.StatusOk)
-	if err != nil {
-		log.Printf("ERROR: error writting status-line to conn")
-		return
-	}
-
-	defaultHeaders := response.GetDefaultHeaders(buffer.Len())
-	err = response.WriteHeaders(conn, defaultHeaders)
-	if err != nil {
-		log.Printf("ERROR: error writting headers to conn")
-		return
-	}
-
-	_, err = conn.Write(buffer.Bytes())
-	if err != nil {
-		log.Printf("ERROR: error writting body to conn")
-	}
+	w := response.NewWritter(conn)
+	s.handler(w, req)
 }
 
-func writeHandlerError(w io.Writer, h HandlerError) error {
-	msg := fmt.Sprintf("HTTP/1.1 %s \r\nConnection: close\r\n\r\n%s", strconv.Itoa(h.StatusCode), h.ErrorMessage)
-	_, err := w.Write([]byte(msg))
-	if err != nil {
-		return err
-	}
-	return nil
-}
+// func writeHandlerError(w io.Writer, h HandlerError) error {
+// 	msg := fmt.Sprintf("HTTP/1.1 %s \r\nConnection: close\r\n\r\n%s", strconv.Itoa(h.StatusCode), h.ErrorMessage)
+// 	_, err := w.Write([]byte(msg))
+// 	if err != nil {
+// 		return err
+// 	}
+// 	return nil
+// }
 
 // func encode[T any](w http.ResponseWriter, _ *http.Request, status int, v T) error {
 // 	w.Header().Set("Content-Type", "text/plain")
