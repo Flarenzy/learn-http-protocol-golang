@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -112,6 +113,11 @@ func (s *Server) handle(conn net.Conn) {
 		proxyHanlder(w, req)
 		return
 	}
+	if strings.HasPrefix(req.RequestLine.RequestTarget, "/video") {
+		handleVideo(w, req)
+		return
+	}
+
 	s.handler(w, req)
 }
 
@@ -190,6 +196,29 @@ func proxyToHttpbin(target string) (*http.Response, error) {
 		return nil, err
 	}
 	return r, nil
+}
+
+func handleVideo(w *response.Writter, r *request.Request) {
+	log.Printf("Handling video for con %s", r.RequestLine.RequestTarget)
+	rawFile, err := os.ReadFile("/Users/bdimic/Library/CloudStorage/OneDrive-BlueCat/workspaces/github.com/Flarenzy/learn-http-protocol-golang/assets/vim.mp4")
+	if err != nil {
+		w.WriteStatusLine(response.StatusInternalServerError)
+		return
+	}
+	err = w.WriteStatusLine(response.StatusOk)
+	if err != nil {
+		log.Printf("ERROR: unable to write status line")
+		return
+	}
+	header := response.GetDefaultHeaders(len(rawFile))
+	header.Set("Content-Type", "video/mp4")
+	w.WriteHeaders(header)
+	_, err = w.WriteBody(rawFile)
+	if err != nil {
+		log.Printf("ERROR: unable to write body")
+		return
+	}
+	log.Printf("Video handled successfuly.")
 }
 
 // func writeHandlerError(w io.Writer, h HandlerError) error {
