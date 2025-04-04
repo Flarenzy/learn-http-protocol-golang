@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github/Flarenzy/learn-http-protocol-golang/internal/headers"
@@ -10,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 )
@@ -128,36 +131,54 @@ func proxyHanlder(w *response.Writter, r *request.Request) {
 	if v := h.Get("Content-Length"); v != "" {
 		h.Del("Content-Length")
 	}
-	headers := headers.NewHeaders()
+	respHeaders := headers.NewHeaders()
 	for k := range h {
-		headers.Set(k, h.Get(k))
+		respHeaders.Set(k, h.Get(k))
 	}
-	w.WriteHeaders(headers)
+	respHeaders.Set("Transfer-Encoding", "chunked")
+	respHeaders.Set("Trailer", "X-Content-Sha256, X-Content-Length")
+	w.WriteHeaders(respHeaders)
 	defer proxedResp.Body.Close()
+	sumOfWrittenBytes := 0
+	var fullBody []byte
 	for {
 		n, err := proxedResp.Body.Read(buf)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				log.Printf("DEBUG: reached EOF finished processing body.")
-
+				_, err := w.WriteChunkedBodyDone()
+				if err != nil {
+					log.Printf("ERROR: unable to write chunked body done.\n")
+					return
+				}
+				break
 			}
 			log.Printf("ERROR: unable to read body of response.\n")
 			return
 		}
+		fullBody = append(fullBody, buf[:n]...)
 		log.Printf("DEBUG: read %d number of bytes from proxy body.\n", n)
-		if n == 0 {
-			_, err := w.WriteChunkedBodyDone()
-			if err != nil {
-				log.Printf("ERROR: unable to write chunked body done.\n")
-				return
-			}
-		}
 		numOfWrittenBytes, err := w.WriteChunkedBody(buf[:n])
 		if err != nil {
 			log.Printf("ERROR: unable to write chuned body.")
 			return
 		}
 		log.Printf("DEBUG: wrote %d number of bytes as chunked body", numOfWrittenBytes)
+		sumOfWrittenBytes += numOfWrittenBytes
+	}
+
+	sha := sha256.Sum256(fullBody)
+	fullBodyLen := len(fullBody)
+	fullBodyLenStr := strconv.Itoa(fullBodyLen)
+	log.Printf("Content sha256: %s\n Len: %s", hex.EncodeToString(sha[:]), strconv.Itoa(fullBodyLen))
+	trailers := headers.NewHeaders()
+	trailers.Set("X-Content-Sha256", hex.EncodeToString(sha[:])) // Correct capitalization
+	trailers.Set("X-Content-Length", fullBodyLenStr)
+
+	err = w.WriteTrailers(trailers)
+	if err != nil {
+		log.Printf("ERROR: %s", err.Error())
+		return
 	}
 
 }

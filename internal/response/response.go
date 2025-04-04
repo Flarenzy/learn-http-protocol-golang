@@ -124,5 +124,21 @@ func (w *Writter) WriteChunkedBody(p []byte) (int, error) {
 
 func (w *Writter) WriteChunkedBodyDone() (int, error) {
 	w.state = writeDone
+	w.conn.Write([]byte("0\r\n"))
 	return 0, nil
+}
+
+func (w *Writter) WriteTrailers(h headers.Headers) error {
+	if h == nil {
+		return fmt.Errorf("no trailers to write")
+	}
+	for k, v := range h {
+		line := []byte(fmt.Sprintf("%s: %s\r\n", k, v))
+		_, err := w.conn.Write(line)
+		if err != nil {
+			return err
+		}
+	}
+	w.conn.Write([]byte("\r\n"))
+	return nil
 }
