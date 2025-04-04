@@ -1,11 +1,16 @@
 package server
 
 import (
+	"errors"
 	"fmt"
+	"github/Flarenzy/learn-http-protocol-golang/internal/headers"
 	"github/Flarenzy/learn-http-protocol-golang/internal/request"
 	"github/Flarenzy/learn-http-protocol-golang/internal/response"
+	"io"
 	"log"
 	"net"
+	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -72,18 +77,18 @@ func (s *Server) Close() error {
 func (s *Server) listen() {
 	for {
 		if !s.running.Load() {
-			log.Printf("server isn't running")
+			log.Printf("server isn't running\n")
 			break
 		}
 		conn, err := s.listener.Accept()
 		log.Printf("accepted conn at addr %s", conn.RemoteAddr())
 		if err != nil {
-			log.Printf("error: unable to accept connection. %s", err.Error())
+			log.Printf("error: unable to accept connection. %s\n", err.Error())
 			return
 		}
 		go func(conn net.Conn) {
 			s.handle(conn)
-			log.Printf("INFO: handeled conn on addr %s, clossing.", conn.RemoteAddr())
+			log.Printf("INFO: handeled conn on addr %s, clossing.\n", conn.RemoteAddr())
 		}(conn)
 	}
 }
@@ -92,14 +97,78 @@ func (s *Server) handle(conn net.Conn) {
 	if cw, ok := conn.(interface{ CloseWrite() error }); ok {
 		defer cw.CloseWrite()
 	} else {
-		log.Printf("Connection doesn't implement CloseWrite method")
+		log.Printf("Connection doesn't implement CloseWrite method\n")
 	}
 	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		log.Printf("ERROR: unable to parse request")
+		log.Printf("ERROR: unable to parse request\n")
+		return
 	}
 	w := response.NewWritter(conn)
+	if strings.HasPrefix(req.RequestLine.RequestTarget, "/httpbin/") {
+		proxyHanlder(w, req)
+		return
+	}
 	s.handler(w, req)
+}
+
+func proxyHanlder(w *response.Writter, r *request.Request) {
+	proxedResp, err := proxyToHttpbin(strings.TrimPrefix(r.RequestLine.RequestTarget, "/httpbin/"))
+	if err != nil {
+		log.Printf("ERROR: unable to proxy to httpbin\n")
+		return
+	}
+	buf := make([]byte, 1024)
+	err = w.WriteStatusLine(response.StatusCode(proxedResp.StatusCode))
+	if err != nil {
+		log.Printf("ERROR: %s", err.Error())
+		return
+	}
+	h := proxedResp.Header
+	if v := h.Get("Content-Length"); v != "" {
+		h.Del("Content-Length")
+	}
+	headers := headers.NewHeaders()
+	for k := range h {
+		headers.Set(k, h.Get(k))
+	}
+	w.WriteHeaders(headers)
+	defer proxedResp.Body.Close()
+	for {
+		n, err := proxedResp.Body.Read(buf)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				log.Printf("DEBUG: reached EOF finished processing body.")
+
+			}
+			log.Printf("ERROR: unable to read body of response.\n")
+			return
+		}
+		log.Printf("DEBUG: read %d number of bytes from proxy body.\n", n)
+		if n == 0 {
+			_, err := w.WriteChunkedBodyDone()
+			if err != nil {
+				log.Printf("ERROR: unable to write chunked body done.\n")
+				return
+			}
+		}
+		numOfWrittenBytes, err := w.WriteChunkedBody(buf[:n])
+		if err != nil {
+			log.Printf("ERROR: unable to write chuned body.")
+			return
+		}
+		log.Printf("DEBUG: wrote %d number of bytes as chunked body", numOfWrittenBytes)
+	}
+
+}
+
+func proxyToHttpbin(target string) (*http.Response, error) {
+	url := fmt.Sprintf("https://httpbin.org/%s", target)
+	r, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // func writeHandlerError(w io.Writer, h HandlerError) error {

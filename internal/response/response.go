@@ -104,3 +104,25 @@ func NewWritter(conn net.Conn) *Writter {
 		state: writeStatusLine,
 	}
 }
+
+func (w *Writter) WriteChunkedBody(p []byte) (int, error) {
+	if w.state != writeBody {
+		return 0, fmt.Errorf("error, writting body after close or before headers")
+	}
+	chunLen := len(p)
+	chunkLenHex := fmt.Sprintf("%X\r\n", chunLen)
+	var buf []byte
+	buf = append(buf, []byte(chunkLenHex)...)
+	buf = append(buf, p...)
+	buf = append(buf, []byte("\r\n")...)
+	n, err := w.conn.Write(buf)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func (w *Writter) WriteChunkedBodyDone() (int, error) {
+	w.state = writeDone
+	return 0, nil
+}
